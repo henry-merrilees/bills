@@ -1,0 +1,50 @@
+\documentclass[a4paper,12pt]{{article}}
+\usepackage[margin=1in]{{geometry}}
+\usepackage{{array}}
+\usepackage{{fancyhdr}}
+\usepackage{{palatino}}
+\usepackage{{setspace}}
+
+\pagestyle{{fancy}}
+\fancyhf{{}}
+\fancyhead[L]{{\textit{{Get Real Employment Activity Log}}}}
+\fancyhead[R]{{\textit{{Henry Merrilees - Dev Department}}}}
+\fancyfoot[C]{{\thepage}}
+
+\title{{\vspace{{-2cm}}Intern Time Sheet Template}}
+\author{{}}
+\date{{}}
+
+\begin{{document}}
+
+\maketitle
+
+\begin{{center}}
+\large \textbf{{GET REAL EMPLOYMENT ACTIVITY LOG}}
+\end{{center}}
+
+\vspace{{0.5cm}}
+
+\begin{{tabbing}}
+\hspace{{1.5in}} \= \hspace{{3in}} \kill
+\textbf{{Pay Period Start:}} \> {} \\
+\textbf{{Pay Period End:}} \> {} \\
+\textbf{{Total Hours:}} \> {} \\
+\end{{tabbing}}
+
+\vspace{{0.5cm}}
+
+\textit{{All official time is reported to Ed Haravon bi-weekly by the employee. This record is for you to keep track of your daily hours for each activity you complete.}}
+
+\vspace{{0.5cm}}
+
+\begin{{center}}
+\begin{{tabular}}{{p{{2.5cm}} p{{2.5cm}} p{{2.5cm}} p{{6cm}} p{{2.5cm}}}}
+\hline
+\textbf{{Date}} & \textbf{{Time Began}} & \textbf{{Time Completed}} & \textbf{{Work Activity}} & \textbf{{Hours}} \\
+\hline
+{}
+\end{{tabular}}
+\end{{center}}
+\end{{document}}
+
