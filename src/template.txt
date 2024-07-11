@@ -5,23 +5,13 @@
 \usepackage{{palatino}}
 \usepackage{{setspace}}
 
-\pagestyle{{fancy}}
-\fancyhf{{}}
-\fancyhead[L]{{\textit{{Get Real Employment Activity Log}}}}
-\fancyhead[R]{{\textit{{Henry Merrilees - Dev Department}}}}
-\fancyfoot[C]{{\thepage}}
-
-\title{{\vspace{{-2cm}}Intern Time Sheet Template}}
-\author{{}}
+\title{{Employee Activity Log}}
+\author{{Henry Merrilees - Dev Department}}
 \date{{}}
 
 \begin{{document}}
 
 \maketitle
-
-\begin{{center}}
-\large \textbf{{GET REAL EMPLOYMENT ACTIVITY LOG}}
-\end{{center}}
 
 \vspace{{0.5cm}}
 
@@ -34,14 +24,14 @@
 
 \vspace{{0.5cm}}
 
-\textit{{All official time is reported to Ed Haravon bi-weekly by the employee. This record is for you to keep track of your daily hours for each activity you complete.}}
+% \textit{{All official time is reported to Ed Haravon bi-weekly by the employee. This record is for you to keep track of your daily hours for each activity you complete.}}
 
 \vspace{{0.5cm}}
 
 \begin{{center}}
 \begin{{tabular}}{{p{{2.5cm}} p{{2.5cm}} p{{2.5cm}} p{{6cm}} p{{2.5cm}}}}
 \hline
-\textbf{{Date}} & \textbf{{Time Began}} & \textbf{{Time Completed}} & \textbf{{Work Activity}} & \textbf{{Hours}} \\
+\textbf{{Date}} & \textbf{{Began}} & \textbf{{Completed}} & \textbf{{Work Activity}} & \textbf{{Hours}} \\
 \hline
 {}
 \end{{tabular}}

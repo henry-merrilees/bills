@@ -1,26 +1,29 @@
-#![feature(trivial_bounds)]
-
-// TODO move latex pdf to feature
-use clap::{clap_derive::Subcommand, Parser, ValueEnum};
-use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+// TODO fix output to csv and pdf, fix time formatting to elide decimals on report,
+// todo, prevent overlapping intevals
+// todo, session management, delete old periods, etc.
+// Git import commit to work activity command
+use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 
-const NAME: &str = "Henry Merrilees";
+use chrono::{DateTime, Local};
+use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 mod output;
+mod ratatui_interface;
 
-#[derive(clap::Parser)]
+#[derive(Parser)]
 #[command(version, about, long_about)]
 struct Cli {
     #[arg(env = "BILLS_PATH")]
-    bills_path: Option<PathBuf>,
+    path: Option<PathBuf>,
     #[command(subcommand)]
-    command: Subcommand,
+    command: Commands,
 }
 
 #[derive(Subcommand)]
-enum Subcommand {
+enum Commands {
     Session {
         #[arg(env = "HOURLY_RATE")]
         hourly_rate: f64,
@@ -31,37 +34,34 @@ enum Subcommand {
     NewPeriod,
     Output {
         #[arg(value_enum)]
-        format: Output,
+        format: OutputFormat,
     },
 }
 
-#[allow(clippy::upper_case_acronyms)]
-#[derive(ValueEnum, Clone)]
-enum Output {
-    PDF,
-    CSV,
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
+enum OutputFormat {
+    /// Generate CSV output
+    Csv,
+    /// Generate PDF output
+    Pdf,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Log {
-    periods: Vec<Period>,
-}
-
-impl Default for Log {
-    fn default() -> Self {
-        // Start with a period
-        Self {
-            periods: vec![Period::default()],
-        }
-    }
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
 struct Period {
     sessions: Vec<Session>,
 }
 
 impl Period {
+    fn hours(&self) -> f64 {
+        self.sessions
+            .iter()
+            .map(|session| {
+                let duration = session.end - session.start;
+                duration.num_seconds() as f64 / 3600.0
+            })
+            .sum()
+    }
+
     fn to_latex(&self) -> String {
         {
             let period = self;
@@ -71,6 +71,7 @@ impl Period {
                 .expect("Period must have at least one session")
                 .start
                 .date_naive();
+
             let end_date = period
                 .sessions
                 .last()
@@ -78,26 +79,36 @@ impl Period {
                 .end
                 .date_naive();
 
-            let entries = period
-                .sessions
-                .iter()
-                .map(Session::to_log_entry)
-                .collect::<Vec<_>>();
+            let entries = output::sessions_to_log_entries(&period.sessions);
 
             format!(
                 include_str!("template.txt"),
                 start_date,
                 end_date,
-                period.earned(),
+                (period.hours() * 10.0).round() / 10.0,
                 entries
                     .iter()
                     .map(|entry| {
+                        let taglist = if entry.work_activity.is_empty() {
+                            "".to_string()
+                        } else {
+                            format!(
+                                "\\begin{{itemize}}{}\\end{{itemize}}",
+                                entry
+                                    .work_activity
+                                    .iter()
+                                    .map(|tag| format!("\\item {}", tag))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                            )
+                        };
+
                         format!(
                             "{} & {} & {} & {} & {:.1} \\\\",
                             entry.date,
-                            entry.time_began,
-                            entry.time_completed,
-                            entry.work_activity,
+                            entry.time_began.format("%I:%M %p"),
+                            entry.time_completed.format("%I:%M %p"),
+                            taglist,
                             entry.hours()
                         )
                     })
@@ -110,137 +121,113 @@ impl Period {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Session {
-    start: chrono::DateTime<chrono::Local>,
-    end: chrono::DateTime<chrono::Local>,
+    start: DateTime<Local>,
+    end: DateTime<Local>,
     hourly_rate: f64,
     tags: Vec<Tag>,
-}
-impl Session {
-    pub(crate) fn to_log_entry(&self) -> output::LogEntry {
-        output::LogEntry::new(
-            self.start.date_naive(),
-            self.start.time(),
-            self.end.time(),
-            self.tags
-                .iter()
-                .map(|tag| tag.note.to_owned())
-                .collect::<Vec<_>>()
-                .join(", "),
-        )
-    }
-}
-
-// just wanted to see if this was possible. Wow this is disgusting.
-trait Span {
-    fn earned(&self) -> f64;
-}
-
-impl Span for Session {
-    fn earned(&self) -> f64 {
-        self.hourly_rate / 3600.0 * self.end.signed_duration_since(self.start).num_seconds() as f64
-    }
-}
-
-impl Span for Period {
-    fn earned(&self) -> f64 {
-        self.sessions.iter().map(Span::earned).sum()
-    }
-}
-
-impl Span for Log {
-    fn earned(&self) -> f64 {
-        self.periods.iter().map(Span::earned).sum()
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Tag {
     note: String,
-    time: chrono::DateTime<chrono::Local>,
+    time: DateTime<Local>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let path = cli
-        .bills_path
-        .unwrap_or(dirs::home_dir().unwrap().join("bills.json"));
-
-    let mut log = match std::fs::File::open(&path) {
-        Ok(file) => serde_json::from_reader(file).unwrap(),
-        Err(_) => Log::default(),
+    let Some(path) = cli.path else {
+        panic!("No path provided, either specify a path using the --bills-path flag or set the BILLS_PATH environment variable");
     };
+    // Ensure the directory exists
+    if !path.exists() {
+        fs::create_dir_all(&path)?;
+    }
+
+    let data_path = path.join("bills.json");
 
     match cli.command {
-        Subcommand::Session {
+        Commands::Session {
             hourly_rate,
             catch_up,
         } => {
-            let period = log.periods.last_mut().expect("default populates periods");
-            session(period, hourly_rate, catch_up.unwrap_or(0.0));
-        }
-        Subcommand::NewPeriod => {
-            log.periods.push(Period::default());
-        }
-        Subcommand::Output {
-            format: Output::PDF,
-        } => {
-            let period = log.periods.last().expect("default populates periods");
-            let latex = period.to_latex();
-            // write
-            std::fs::write("output.tex", latex.clone()).unwrap();
-            let pdf_data = tectonic::latex_to_pdf(latex).unwrap();
-            std::fs::write("output.pdf", pdf_data).unwrap();
-        }
-        Subcommand::Output {
-            format: Output::CSV,
-        } => {
-            unimplemented!()
-        }
-    }
+            // Read existing sessions from file
+            let mut periods = read_period_from_file(&data_path)?;
+            let last_period = match periods.last_mut() {
+                Some(period) => period,
+                None => {
+                    periods.push(Period {
+                        sessions: Vec::new(),
+                    });
+                    periods.last_mut().unwrap()
+                }
+            };
 
-    let new_contents = serde_json::to_string_pretty(&log).unwrap();
-    std::fs::write(&path, new_contents).unwrap();
+            // Run the ratatui interface
+            let new_session = ratatui_interface::run(hourly_rate, catch_up).await?;
+
+            // Add the new session and write all sessions back to file
+            last_period.sessions.push(new_session);
+            write_periods(&data_path, &periods)?;
+        }
+        Commands::Output { format } => {
+            // Read sessions from file
+            let periods = read_period_from_file(&data_path)?;
+            let last_period = match periods.last() {
+                Some(period) => period,
+                None => {
+                    eprintln!("No sessions found");
+                    return Ok(());
+                }
+            };
+
+            match format {
+                OutputFormat::Csv => {}
+                OutputFormat::Pdf => {
+                    let latex = last_period.to_latex();
+                    let output_folder = path.join("output");
+
+                    if !output_folder.exists() {
+                        fs::create_dir_all(&output_folder)?;
+                    }
+
+                    let timestamp = Local::now().format("%+");
+
+                    let tex_file = output_folder.join(format!("output-{}.tex", timestamp));
+                    std::fs::write(tex_file, latex.clone()).unwrap();
+
+                    let pdf_data = tectonic::latex_to_pdf(latex).unwrap();
+                    let pdf_file = output_folder.join(format!("output-{}.pdf", timestamp));
+                    std::fs::write(pdf_file, pdf_data).unwrap();
+                }
+            }
+        }
+        Commands::NewPeriod => {
+            let mut sessions = read_period_from_file(&data_path)?;
+            sessions.push(Period {
+                sessions: Vec::new(),
+            });
+            write_periods(&data_path, &sessions)?;
+        }
+    };
+
+    Ok(())
 }
 
-fn session(period: &mut Period, hourly_rate: f64, catch_up: f64) {
-    let minimum_uptate_time = std::time::Duration::from_secs_f64(36.0 / hourly_rate); // seconds per cent
-    let catch_up_duration = std::time::Duration::from_secs_f64(catch_up * 60.0); // minutes to seconds
-
-    // TODO tag input mechanism
-
-    let start = chrono::Local::now();
-    let start = start - catch_up_duration;
-    loop {
-        let elapsed = start.signed_duration_since(chrono::Local::now());
-        let seconds = elapsed.num_seconds();
-        let (hours, minutes, seconds) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);
-
-        let earned_money = hourly_rate / 3600.0 * elapsed.num_seconds() as f64;
-
-        // clear last line
-        let mut stdout = std::io::stdout();
-
-        print!(
-            "\rTime: {:02}:{:02}:{:02}. Earned: ${:.2}.",
-            hours, minutes, seconds, earned_money
-        );
-
-        stdout.flush().unwrap();
-
-        std::thread::sleep(minimum_uptate_time);
-        // wait for input
-        if std::io::stdin().read(&mut [0u8]).is_ok() {
-            break;
-        }
+fn read_period_from_file(path: &PathBuf) -> Result<Vec<Period>, Box<dyn std::error::Error>> {
+    if path.exists() {
+        let mut file = fs::File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Ok(serde_json::from_str(&contents)?)
+    } else {
+        Ok(Vec::new())
     }
+}
 
-    let end = chrono::Local::now();
-
-    period.sessions.push(Session {
-        start,
-        end,
-        hourly_rate,
-        tags: Vec::new(),
-    });
+fn write_periods(path: &PathBuf, sessions: &[Period]) -> Result<(), Box<dyn std::error::Error>> {
+    let json = serde_json::to_string(sessions)?;
+    std::fs::write(path, json)?;
+    Ok(())
 }

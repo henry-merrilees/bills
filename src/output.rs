@@ -1,17 +1,20 @@
+use crate::Session;
+use chrono::{NaiveDate, NaiveTime};
+
 #[derive(Debug)]
-pub(crate) struct LogEntry {
-    pub(crate) date: chrono::NaiveDate,
-    pub(crate) time_began: chrono::NaiveTime,
-    pub(crate) time_completed: chrono::NaiveTime,
-    pub(crate) work_activity: String,
+pub struct LogEntry {
+    pub date: NaiveDate,
+    pub time_began: NaiveTime,
+    pub time_completed: NaiveTime,
+    pub work_activity: Vec<String>,
 }
 
 impl LogEntry {
-    pub(crate) fn new(
-        date: chrono::NaiveDate,
-        time_began: chrono::NaiveTime,
-        time_completed: chrono::NaiveTime,
-        work_activity: String,
+    pub fn new(
+        date: NaiveDate,
+        time_began: NaiveTime,
+        time_completed: NaiveTime,
+        work_activity: Vec<String>,
     ) -> Self {
         Self {
             date,
@@ -21,9 +24,26 @@ impl LogEntry {
         }
     }
 
-    pub(crate) fn hours(&self) -> f64 {
-        let duration =
-            chrono::NaiveTime::signed_duration_since(self.time_completed, self.time_began);
+    pub fn hours(&self) -> f64 {
+        let duration = self.time_completed.signed_duration_since(self.time_began);
         duration.num_seconds() as f64 / 3600.0
     }
+}
+
+pub fn sessions_to_log_entries(sessions: &[Session]) -> Vec<LogEntry> {
+    sessions
+        .iter()
+        .map(|session| {
+            LogEntry::new(
+                session.start.date_naive(),
+                session.start.time(),
+                session.end.time(),
+                session
+                    .tags
+                    .iter()
+                    .map(|tag| tag.note.clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
 }
